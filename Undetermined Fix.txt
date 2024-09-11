@@ -1,0 +1,28 @@
+Undetermined Fix
+
+// Pull UserID from SecurityIncident
+let SecurityIncidentsWithAADUserID =
+    SecurityIncident
+    | where Severity != "Informational" and Severity != "Low"
+    | where Status == "Closed"
+    | where Classification == "Undetermined"
+    | extend si_AlertIds = tostring(AlertIds[0])
+    | join kind=inner SecurityAlert on $left.si_AlertIds == $right.SystemAlertId
+    | where ProductName == "Azure Active Directory Identity Protection"
+    | extend AADUserID = tostring(parse_json(Entities)[0].AadUserId)
+    | summarize arg_max(TimeGenerated, *) by IncidentNumber, AADUserID
+    | project IncidentNumber, Title, Severity, Status, Classification, AADUserID;
+// Pull same UserID from AuditLogs and check auditlog for password reset
+let MatchingPasswordResetEvents =
+    SecurityIncidentsWithAADUserID
+    | join kind=inner (
+        AuditLogs
+        | where OperationName == "Reset password (by admin)"
+        | where TimeGenerated < ago(6h)
+        | extend AuditUserID = tostring(TargetResources[0].id)
+        | project AuditUserID
+    ) on $left.AADUserID == $right.AuditUserID
+    | project IncidentNumber;
+// Join SecurityIncident with AuditLogs, if event is produced no action was found in the AuditLog in the time specified 
+SecurityIncidentsWithAADUserID
+| where IncidentNumber !in (MatchingPasswordResetEvents)

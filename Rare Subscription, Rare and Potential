@@ -1,0 +1,18 @@
+let starttime = 14d;
+let endtime = 1d;
+let UniqueDays = 3;
+let recentactivity = OfficeActivity
+| where TimeGenerated between (ago(starttime) .. ago(endtime))  
+| where Operation in~ ("Add-MailboxPermission", "Add-MailboxFolderPermission", "Set-Mailbox", "New-ManagementRoleAssignment", "Set-TransportRule")  
+| summarize UniqueDayEvents = dcount(startofday(TimeGenerated)) by UserId = tolower(UserId)
+| where UniqueDayEvents >= UniqueDays;  
+OfficeActivity
+| where TimeGenerated >= ago(endtime)  
+| where Operation in~ ("Add-MailboxPermission", "Add-MailboxFolderPermission", "Set-Mailbox", "New-ManagementRoleAssignment", "Set-TransportRule")  
+| summarize ActionAmount = count()
+by TimeGenerated, UserId = tolower(UserId), Operation, RecordType, UserType, ClientIP, OriginatingServer, OfficeObjectId
+| join kind=leftanti (
+    recentactivity  
+) on UserId
+| summarize ActionAmount = sum(ActionAmount)
+by TimeGenerated, UserId, Operation, RecordType, UserType, ClientIP, OriginatingServer, OfficeObjectId
